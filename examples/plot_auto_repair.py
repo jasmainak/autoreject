@@ -149,15 +149,25 @@ plt.tight_layout()
 # :func:`seaborn.heatmap`.
 
 ###############################################################################
+from autoreject import plot_epochs
+plot_epochs(epochs, bad_epochs_idx=ar.bad_epochs_idx,
+            fix_log=ar.fix_log, scalings=dict(eeg=40e-6),
+            title='')
+
+dsdf
+
 import seaborn as sns
 set_matplotlib_defaults(plt)
 
 plt.figure(figsize=(18, 6))
-ax = sns.heatmap(ar.bad_segments, xticklabels=10, yticklabels=20, square=True,
+ax = sns.heatmap(ar.bad_segments, yticklabels=20, square=True,
                  cbar=False, cmap='Reds')
 ax.set_xlabel('Sensors')
 ax.set_ylabel('Trials')
 
+
+plt.setp(ax, xticks=ax.get_xticks()[::10],
+         xticklabels=epochs.info['ch_names'][::10])
 plt.setp(ax.get_yticklabels(), rotation=0)
 plt.setp(ax.get_xticklabels(), rotation=90)
 plt.tight_layout(rect=[None, None, None, 1.1])

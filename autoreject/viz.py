@@ -451,7 +451,7 @@ def _prepare_mne_browse_epochs(params, projs, n_channels, n_epochs, scalings,
                     if this_log == 1:
                         params['colors'][ch_idx][epoch_idx] = (1., 0., 0., 1.)
                     elif this_log == 2:
-                        params['colors'][ch_idx][epoch_idx] = (0., 0., 1., 1.)
+                        params['colors'][ch_idx][epoch_idx] = (0., 1., 0., 1.)
 
     params['plot_fun']()
 

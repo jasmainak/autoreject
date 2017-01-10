@@ -18,7 +18,7 @@ from sklearn.externals.joblib import Memory
 from .utils import clean_by_interp, interpolate_bads, _get_epochs_type, _pbar
 
 mem = Memory(cachedir='cachedir')
-mem.clear(warn=False)
+# mem.clear(warn=False)
 
 
 def _check_data(epochs):
@@ -377,21 +377,23 @@ class LocalAutoReject(BaseAutoReject):
         epochs : instance of mne.Epochs
             The epochs object for which bad epochs must be found.
         """
+        from mne import pick_channels
         n_epochs = len(epochs)
         picks = mne.pick_types(epochs.info, meg=True, eeg=True, eog=True)
-        self._drop_log = np.zeros((n_epochs, len(picks)))
+        self._drop_log = np.zeros((n_epochs, len(epochs.info['ch_names'])))
         self.bad_epoch_counts = np.zeros((len(epochs), ))
         ch_types = [ch_type for ch_type in ('eeg', 'meg')
                     if ch_type in epochs]
         for ch_type in ch_types:
             picks = _pick_exclusive_channels(epochs.info, ch_type)
-            assert len(picks) == len(epochs.info['ch_names'])
+            ch_names = [epochs.info['ch_names'][p] for p in picks]
             deltas = np.ptp(epochs.get_data()[:, picks], axis=-1).T
             threshes = self.threshes_[ch_type]
-            for ch_idx, (delta, thresh) in enumerate(zip(deltas, threshes)):
+            for delta, thresh, ch_name in zip(deltas, threshes, ch_names):
                 bad_epochs_idx = np.where(delta > thresh)[0]
                 # TODO: combine for different ch types
                 self.bad_epoch_counts[bad_epochs_idx] += 1
+                ch_idx = pick_channels(ch_names, [ch_name])
                 self._drop_log[bad_epochs_idx, ch_idx] = 1
 
     def _get_bad_epochs(self):
@@ -449,6 +451,7 @@ class LocalAutoReject(BaseAutoReject):
             self.fix_log[epoch_idx][bad_chs] = 2
             bad_chs = [ch_name for idx, ch_name in enumerate(ch_names)
                        if idx in bad_chs]
+            print(bad_chs)
             epoch = epochs[epoch_idx]
             epoch.info['bads'] = bad_chs
             interpolate_bads(epoch, reset_bads=True)
