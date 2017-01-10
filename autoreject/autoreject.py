@@ -14,6 +14,7 @@ from sklearn.model_selection import RandomizedSearchCV
 from sklearn.cross_validation import KFold, StratifiedShuffleSplit
 
 from sklearn.externals.joblib import Memory
+from pandas import DataFrame
 
 from .utils import clean_by_interp, interpolate_bads, _get_epochs_type, _pbar
 
@@ -380,7 +381,9 @@ class LocalAutoReject(BaseAutoReject):
         from mne import pick_channels
         n_epochs = len(epochs)
         picks = mne.pick_types(epochs.info, meg=True, eeg=True, eog=True)
-        self._drop_log = np.zeros((n_epochs, len(epochs.info['ch_names'])))
+        self._drop_log = np.zeros((n_epochs, len(picks)))
+        self._drop_log_old = DataFrame(np.zeros((n_epochs, len(picks)), dtype=int),
+                                       columns=epochs.info['ch_names'])
         self.bad_epoch_counts = np.zeros((len(epochs), ))
         ch_types = [ch_type for ch_type in ('eeg', 'meg')
                     if ch_type in epochs]
@@ -395,6 +398,7 @@ class LocalAutoReject(BaseAutoReject):
                 self.bad_epoch_counts[bad_epochs_idx] += 1
                 ch_idx = pick_channels(ch_names, [ch_name])
                 self._drop_log[bad_epochs_idx, ch_idx] = 1
+                self._drop_log_old.ix[bad_epochs_idx, ch_name] = 1
 
     def _get_bad_epochs(self):
         """Get the indices of bad epochs.
@@ -422,38 +426,53 @@ class LocalAutoReject(BaseAutoReject):
         epochs : instance of mne.Epochs
             The epochs object which must be fixed.
         """
+        from numpy.testing import assert_array_equal
         drop_log = self._drop_log
+        drop_log_old = self._drop_log_old
         # 1: bad segment, # 2: interpolated, # 3: dropped
         self.fix_log = self._drop_log.copy()
+        ch_names_old = drop_log_old.columns.values
         ch_names = epochs.info['ch_names']
+        assert ch_names == ch_names_old.tolist()
         n_consensus = self.consensus_perc * len(ch_names)
         # TODO: raise error if preload is not True
         pos = 4 if hasattr(self, '_leave') else 2
         for epoch_idx in _pbar(range(len(epochs)), desc='Repairing epochs',
                                position=pos, leave=True, verbose=verbose):
+            n_bads_old = drop_log_old.ix[epoch_idx].sum()
             n_bads = drop_log[epoch_idx].sum()
+            assert n_bads == n_bads_old
             if n_bads == 0 or n_bads > n_consensus:
                 continue
             else:
                 if n_bads <= self.n_interpolate:
+                    bad_chs_old = drop_log_old.ix[epoch_idx].values == 1
                     bad_chs = drop_log[epoch_idx] == 1
+                    assert len(bad_chs) == len(bad_chs_old)
+                    assert_array_equal(bad_chs_old, bad_chs)
                 else:
                     # get peak-to-peak for channels in that epoch
                     data = epochs[epoch_idx].get_data()[0, :, :]
                     peaks = np.ptp(data, axis=-1)
                     # find channels which are bad by rejection threshold
+                    bad_chs_old = np.where(drop_log_old.ix[epoch_idx].values == 1)[0]
                     bad_chs = np.where(drop_log[epoch_idx] == 1)[0]
+                    assert len(bad_chs) == len(bad_chs_old)
+                    assert_array_equal(bad_chs_old, bad_chs)
                     # find the ordering of channels amongst the bad channels
                     sorted_ch_idx = np.argsort(peaks[bad_chs])[::-1]
                     # then select only the worst n_interpolate channels
                     bad_chs = bad_chs[sorted_ch_idx[:self.n_interpolate]]
+                    bad_chs_old = bad_chs_old[sorted_ch_idx[:self.n_interpolate]]
 
             self.fix_log[epoch_idx][bad_chs] = 2
-            bad_chs = [ch_name for idx, ch_name in enumerate(ch_names)
-                       if idx in bad_chs]
-            print(bad_chs)
+            bad_chs_names_old = ch_names_old[bad_chs_old].tolist()
+            bad_chs_names = [ch_name for idx, ch_name in enumerate(ch_names)
+                             if idx in np.where(bad_chs == 1)[0]]
+            assert all(a == b for (a, b) in zip(bad_chs_names, bad_chs_names_old))
+            print(bad_chs_names)
             epoch = epochs[epoch_idx]
-            epoch.info['bads'] = bad_chs
+            epoch.info['bads'] = bad_chs_names
             interpolate_bads(epoch, reset_bads=True)
             epochs._data[epoch_idx] = epoch._data
 
